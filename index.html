@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <?!= include('styles'); ?>
+  </head>
+  <body class="public-body">
+    <main class="public-shell">
+      <section class="public-hero" aria-label="Marca Dulce Mezcla">
+        <div id="brandLogoSlot">
+          <div class="brand-logo hero text-logo">DM</div>
+        </div>
+        <div>
+          <p class="brand-kicker">Pastelería & Repostería</p>
+          <h1 id="brandName">Dulce Mezcla</h1>
+          <p class="hero-copy">Gracias por ser parte de nuestra comunidad dulce.</p>
+        </div>
+      </section>
+
+      <section id="couponCard" class="coupon-card premium-card">
+        <div class="loader">Cargando cupón...</div>
+      </section>
+
+      <section class="public-footer-note">
+        <div>
+          <strong>Presenta este cupón en caja para aplicar el beneficio.</strong>
+          <span>No acumulable con otras promociones. Válido por tiempo limitado.</span>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      window.APP_INITIAL_CODE = <?!= JSON.stringify(initialCode || '') ?>;
+      window.APP_BRANDING = <?!= JSON.stringify(branding || {}) ?>;
+    </script>
+    <?!= include('shared'); ?>
+    <?!= include('qr-lib'); ?>
+    <script>
+      const initialCode = window.APP_INITIAL_CODE || '';
+      const branding = normalizeBranding(window.APP_BRANDING || {});
+      const couponCard = document.getElementById('couponCard');
+      let currentCoupon = null;
+
+      document.addEventListener('DOMContentLoaded', () => {
+        applyBranding(branding);
+        if (!initialCode) {
+          couponCard.innerHTML = `
+            <div class="empty-state premium-empty">
+              <h2>Falta el código</h2>
+              <p>Abre esta página desde el QR o usa un enlace que incluya <strong>?code=DULCE-ABC123</strong>.</p>
+            </div>`;
+          return;
+        }
+        loadCoupon(initialCode);
+      });
+
+      async function loadCoupon(code) {
+        setLoading(couponCard, 'Consultando estado del cupón...');
+        try {
+          const result = await callServer('getCouponPublic', code);
+          if (!result.ok) {
+            couponCard.innerHTML = renderMessage('error', 'Cupón no encontrado', result.message);
+            return;
+          }
+          if (result.branding) applyBranding(result.branding);
+          currentCoupon = result.coupon;
+          renderCoupon(result.coupon);
+        } catch (err) {
+          couponCard.innerHTML = renderMessage('error', 'No se pudo consultar', err.message);
+        }
+      }
+
+      function renderCoupon(coupon) {
+        const status = getCouponStatusMeta(coupon.estado);
+        // Si ya se entregó en el stand, reflejarlo en el panel de estado.
+        if (coupon.estado === 'REDIMIDO' && String(coupon.entrega_estado || '').toUpperCase() === 'ENTREGADO') {
+          status.title = 'Cupón entregado';
+          status.message = 'Este cupón ya fue entregado' + (coupon.fecha_entrega ? ' el ' + coupon.fecha_entrega : '') + '.';
+        }
+        const redeemBlock = coupon.estado === 'DISPONIBLE'
+          ? `<button id="redeemButton" class="redeem-button" type="button">${iconSvg('gift')}<span>Redimir cupón</span></button>`
+          : '';
+
+        couponCard.innerHTML = `
+          <div class="voucher-ribbon">Oferta especial</div>
+          <div class="coupon-card-header">
+            <div class="coupon-brandline">
+              ${brandLogoHtml(branding, 'small')}
+              <div>
+                <strong>${escapeHtml(branding.businessName)}</strong>
+                <span>Beneficio exclusivo</span>
+              </div>
+            </div>
+            ${stateBadge(coupon.estado)}
+          </div>
+
+          <div class="voucher-grid">
+            <section class="voucher-info">
+              <p class="eyebrow with-flourish">Código de descuento</p>
+              <div class="coupon-code-box">${escapeHtml(coupon.codigo)}</div>
+              <div class="status-panel ${coupon.estado.toLowerCase()}">
+                <div class="status-icon">${iconSvg(status.icon)}</div>
+                <div>
+                  <strong>${escapeHtml(status.title)}</strong>
+                  <span>${escapeHtml(status.message)}</span>
+                </div>
+              </div>
+              <div class="promo-summary">
+                <div class="discount-seal">
+                  <strong>${coupon.estado === 'DISPONIBLE' ? 'Válido' : 'Cupón'}</strong>
+                  <span>${escapeHtml(coupon.estado)}</span>
+                </div>
+                <div>
+                  <h2>${escapeHtml(coupon.promocion || 'Promoción especial')}</h2>
+                  <p>${escapeHtml(coupon.descripcion || 'Presenta este cupón en caja para validarlo y conocer tu beneficio.')}</p>
+                </div>
+              </div>
+              ${redeemBlock}
+              <div id="redeemResult" class="inline-result"></div>
+            </section>
+
+            <section class="voucher-qr">
+              <p class="eyebrow with-flourish">Escanea para mostrar</p>
+              <div id="publicQr" class="qr-preview premium-qr" aria-label="Código QR"></div>
+              <p class="qr-caption">Este QR identifica tu cupón único.</p>
+            </section>
+          </div>
+
+          <div class="coupon-actions-panel">
+            <p class="eyebrow with-flourish">Comparte tu cupón</p>
+            <div class="social-actions">
+              ${brandExternalLink('Instagram', branding.instagramUrl)}
+              ${brandExternalLink('WhatsApp', buildCouponWhatsAppUrl(coupon, branding))}
+              ${renderShareButtons(coupon)}
+            </div>
+          </div>
+        `;
+
+        renderQr(document.getElementById('publicQr'), coupon.url_redencion || location.href, { size: 236 });
+
+        const redeemButton = document.getElementById('redeemButton');
+        if (redeemButton) {
+          redeemButton.addEventListener('click', redeemCurrentCoupon);
+        }
+      }
+
+      async function redeemCurrentCoupon(event) {
+        const resultBox = document.getElementById('redeemResult');
+        const button = event.currentTarget;
+        button.disabled = true;
+        resultBox.innerHTML = `<div class="notice">${iconSvg('gift')}<span>Validando y redimiendo...</span></div>`;
+
+        try {
+          const result = await callServer('redeemCouponSimple', currentCoupon.codigo);
+          if (!result.ok) {
+            resultBox.innerHTML = `<div class="notice error">${iconSvg('alert')}<span>${escapeHtml(result.message)}</span></div>`;
+            if (result.coupon) {
+              currentCoupon = result.coupon;
+              renderCoupon(result.coupon);
+            }
+            return;
+          }
+          currentCoupon = result.coupon;
+          renderCoupon(result.coupon);
+          document.getElementById('redeemResult').innerHTML = `<div class="notice success">${iconSvg('check')}<span>Cupón redimido. Preséntalo en el stand de Dulce Mezcla para reclamar tu beneficio.</span></div>`;
+        } catch (err) {
+          resultBox.innerHTML = `<div class="notice error">${iconSvg('alert')}<span>${escapeHtml(err.message)}</span></div>`;
+        } finally {
+          button.disabled = false;
+        }
+      }
+
+      function applyBranding(config) {
+        Object.assign(branding, normalizeBranding(config));
+        document.getElementById('brandName').textContent = branding.businessName;
+        document.getElementById('brandLogoSlot').innerHTML = brandLogoHtml(branding, 'hero');
+      }
+    </script>
+  </body>
+</html>

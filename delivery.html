@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <?!= include('styles'); ?>
+    <style>
+      /* ===== Vista ENTREGA (feria) — mobile-first, botones grandes ===== */
+      .delivery-page {
+        max-width: 560px;
+        margin: 0 auto;
+        padding: 16px 14px 48px;
+      }
+      .delivery-head {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 14px;
+      }
+      .delivery-head h1 {
+        font-size: 1.4rem;
+        margin: 0;
+      }
+      .delivery-head .eyebrow { margin: 0; }
+      .delivery-card {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 18px 16px;
+        box-shadow: var(--soft-shadow);
+        margin-bottom: 16px;
+      }
+      .delivery-field {
+        display: block;
+        font-weight: 700;
+        color: var(--muted);
+        font-size: 0.9rem;
+        margin-bottom: 14px;
+      }
+      .delivery-field input,
+      .delivery-field textarea {
+        display: block;
+        width: 100%;
+        margin-top: 6px;
+        padding: 14px 14px;
+        font-size: 1.15rem;
+        border: 1.5px solid var(--line);
+        border-radius: 12px;
+        background: #fff;
+        color: var(--ink);
+      }
+      .delivery-field input:focus,
+      .delivery-field textarea:focus {
+        outline: none;
+        border-color: var(--rose-dark);
+      }
+      #codeInput { text-transform: uppercase; letter-spacing: 0.04em; font-weight: 800; }
+      .big-button {
+        width: 100%;
+        min-height: 58px;
+        font-size: 1.2rem;
+        font-weight: 800;
+        border: none;
+        border-radius: 14px;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+      }
+      .big-button.primary { background: var(--rose-dark); color: #fff; }
+      .big-button.success { background: var(--green); color: #fff; }
+      .big-button.ghost {
+        background: #fff;
+        color: var(--ink);
+        border: 1.5px solid var(--line);
+        min-height: 50px;
+        font-size: 1.05rem;
+      }
+      .big-button:disabled { opacity: 0.55; cursor: not-allowed; }
+      .button-stack { display: grid; gap: 10px; }
+      .paste-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: end; }
+      .paste-row .delivery-field { margin-bottom: 0; }
+
+      /* Banner de estado grande y claro */
+      .status-banner {
+        border-radius: 16px;
+        padding: 18px 16px;
+        margin-bottom: 16px;
+        text-align: center;
+      }
+      .status-banner h2 { margin: 0 0 6px; font-size: 1.5rem; }
+      .status-banner p { margin: 0; font-size: 1rem; }
+      .status-banner.ok { background: var(--green-bg); color: var(--green); }
+      .status-banner.warn { background: var(--orange-bg); color: var(--orange); }
+      .status-banner.bad { background: var(--red-bg); color: var(--red); }
+
+      .info-grid {
+        display: grid;
+        gap: 10px;
+        margin: 0 0 4px;
+      }
+      .info-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        padding: 10px 0;
+        border-bottom: 1px dashed var(--line);
+      }
+      .info-row:last-child { border-bottom: none; }
+      .info-row span { color: var(--muted); font-weight: 700; font-size: 0.9rem; }
+      .info-row strong { font-size: 1.05rem; text-align: right; }
+      .code-big {
+        font-size: 1.5rem;
+        font-weight: 900;
+        letter-spacing: 0.06em;
+        text-align: center;
+        padding: 10px;
+        background: var(--cream);
+        border-radius: 12px;
+        margin-bottom: 14px;
+        word-break: break-all;
+      }
+      .delivery-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 5px 12px;
+        border-radius: 999px;
+        font-weight: 800;
+        font-size: 0.85rem;
+      }
+      .delivery-badge.pendiente { color: var(--orange); background: var(--orange-bg); }
+      .delivery-badge.entregado { color: var(--green); background: var(--green-bg); }
+      .hidden { display: none !important; }
+      .delivery-foot {
+        text-align: center;
+        font-size: 0.85rem;
+        color: var(--muted);
+        margin-top: 18px;
+      }
+      .delivery-foot a { color: var(--rose-dark); font-weight: 700; }
+
+      /* ===== Separador "o" entre escanear y código manual ===== */
+      .or-divider {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 14px 0;
+        color: var(--muted);
+        font-size: 0.85rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+      .or-divider::before,
+      .or-divider::after {
+        content: "";
+        flex: 1;
+        height: 1px;
+        background: var(--line);
+      }
+
+      /* ===== Overlay del escáner QR ===== */
+      .scanner-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        background: rgba(20, 12, 16, 0.92);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 18px;
+      }
+      .scanner-box {
+        width: 100%;
+        max-width: 460px;
+        background: var(--surface);
+        border-radius: 18px;
+        padding: 14px;
+        box-shadow: var(--soft-shadow);
+      }
+      .scanner-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 12px;
+      }
+      .scanner-head strong { font-size: 1.1rem; }
+      .scanner-close {
+        border: none;
+        background: var(--cream);
+        color: var(--ink);
+        width: 38px;
+        height: 38px;
+        border-radius: 999px;
+        font-size: 1.2rem;
+        line-height: 1;
+        cursor: pointer;
+      }
+      .scanner-video-wrap {
+        position: relative;
+        width: 100%;
+        aspect-ratio: 1 / 1;
+        background: #000;
+        border-radius: 14px;
+        overflow: hidden;
+      }
+      .scanner-video-wrap video {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+      }
+      .scanner-reticle {
+        position: absolute;
+        inset: 14%;
+        border: 3px solid rgba(255, 255, 255, 0.9);
+        border-radius: 16px;
+        box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.25);
+        pointer-events: none;
+      }
+      .scanner-hint {
+        text-align: center;
+        margin: 12px 0 10px;
+        font-size: 0.95rem;
+        color: var(--muted);
+        min-height: 1.2em;
+      }
+      .scanner-hint.error { color: var(--red); font-weight: 700; }
+      .scanner-actions { display: grid; gap: 10px; }
+    </style>
+  </head>
+  <body>
+    <main class="delivery-page">
+      <header class="delivery-head">
+        <div id="deliveryBrand"></div>
+        <div>
+          <p class="eyebrow">Modo entrega · Feria</p>
+          <h1>Validar entrega</h1>
+        </div>
+      </header>
+
+      <!-- Acceso + búsqueda -->
+      <section class="delivery-card" id="searchCard">
+        <label class="delivery-field">
+          PIN_ADMIN
+          <input id="pinInput" type="password" inputmode="numeric" autocomplete="one-time-code" placeholder="PIN del equipo">
+        </label>
+
+        <button class="big-button primary" type="button" id="scanButton">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"></path>
+            <path d="M3 12h18"></path>
+          </svg>
+          Escanear QR del cliente
+        </button>
+
+        <div class="or-divider">o ingresa el código</div>
+
+        <div class="paste-row">
+          <label class="delivery-field">
+            Código del cupón
+            <input id="codeInput" type="text" autocomplete="off" placeholder="DULCE-ABC123">
+          </label>
+          <button class="big-button ghost" type="button" id="pasteButton">Pegar</button>
+        </div>
+        <div class="button-stack" style="margin-top:14px;">
+          <button class="big-button primary" type="button" id="consultButton">Consultar cupón</button>
+        </div>
+        <div id="searchError" class="inline-result"></div>
+      </section>
+
+      <!-- Resultado -->
+      <section id="resultArea" class="hidden"></section>
+
+      <p class="delivery-foot">
+        ¿Necesitas el panel completo? <a id="adminLink" href="?admin=1" target="_blank" rel="noopener">Abrir admin</a>
+      </p>
+    </main>
+
+    <!-- Overlay del escáner QR -->
+    <div id="scannerOverlay" class="scanner-overlay hidden">
+      <div class="scanner-box">
+        <div class="scanner-head">
+          <strong>Escanea el QR del cupón</strong>
+          <button type="button" class="scanner-close" id="scannerClose" aria-label="Cerrar">✕</button>
+        </div>
+        <div class="scanner-video-wrap">
+          <video id="scannerVideo" playsinline muted></video>
+          <div class="scanner-reticle"></div>
+        </div>
+        <p id="scannerHint" class="scanner-hint">Apunta la cámara al código QR…</p>
+        <div class="scanner-actions">
+          <button type="button" class="big-button ghost" id="scannerPhotoBtn">Tomar foto del QR</button>
+        </div>
+      </div>
+      <input id="scannerFile" type="file" accept="image/*" capture="environment" class="hidden">
+    </div>
+
+    <script>
+      window.APP_INITIAL_CODE = <?!= JSON.stringify(initialCode || '') ?>;
+      window.APP_BRANDING = <?!= JSON.stringify(branding || {}) ?>;
+      window.APP_WEB_APP_URL = <?!= JSON.stringify(webAppUrl || '') ?>;
+    </script>
+    <?!= include('shared'); ?>
+    <?!= include('qr-decode'); ?>
+    <script>
+      var branding = normalizeBranding(window.APP_BRANDING || {});
+      var currentCoupon = null;
+
+      function $(id) { return document.getElementById(id); }
+
+      function showSearchError(msg) {
+        $('searchError').innerHTML = msg
+          ? '<div class="notice error">' + escapeHtml(msg) + '</div>'
+          : '';
+      }
+
+      // ---- Marca ----
+      function renderBrand() {
+        var src = branding.logoUrl || branding.logoDataUri || '';
+        var name = escapeHtml(branding.businessName || 'Dulce Mezcla');
+        var el = $('deliveryBrand');
+        if (!el) return;
+        el.innerHTML = src
+          ? '<img class="brand-logo tiny" src="' + escapeHtml(src) + '" alt="' + name + '">'
+          : '<div class="brand-logo tiny text-logo" aria-label="' + name + '">DM</div>';
+      }
+
+      // ---- Consultar cupón ----
+      function consultCoupon() {
+        var pin = ($('pinInput').value || '').trim();
+        var code = ($('codeInput').value || '').trim().toUpperCase();
+        showSearchError('');
+        if (!pin) { showSearchError('Ingresa el PIN_ADMIN.'); return; }
+        if (!code) { showSearchError('Ingresa o pega el código del cupón.'); return; }
+
+        var btn = $('consultButton');
+        btn.disabled = true;
+        btn.textContent = 'Consultando…';
+        $('resultArea').classList.add('hidden');
+
+        callServer('getCouponForDelivery', code, pin)
+          .then(function (result) {
+            btn.disabled = false;
+            btn.textContent = 'Consultar cupón';
+            if (!result.ok) { showSearchError(result.message || 'No se pudo consultar.'); return; }
+            currentCoupon = result.coupon;
+            renderResult(result.coupon);
+          })
+          .catch(function (err) {
+            btn.disabled = false;
+            btn.textContent = 'Consultar cupón';
+            showSearchError(err && err.message ? err.message : String(err));
+          });
+      }
+
+      // ---- Render del resultado por CASO ----
+      function renderResult(coupon) {
+        var state = String(coupon.estado || '').toUpperCase();
+        var delivery = String(coupon.entrega_estado || '').toUpperCase();
+        var area = $('resultArea');
+
+        var banner = '';
+        var action = '';
+
+        if (state === 'ELIMINADO') {
+          banner = bannerHtml('bad', 'Cupón eliminado', 'Este cupón fue eliminado y no se puede entregar.');
+        } else if (state === 'ANULADO') {
+          banner = bannerHtml('bad', 'Cupón anulado', 'Este cupón está anulado y no se puede entregar.');
+        } else if (state === 'DISPONIBLE') {
+          banner = bannerHtml('warn', 'Aún no redimido', 'El cliente todavía no ha redimido este cupón. No se puede entregar.');
+        } else if (state === 'REDIMIDO' && delivery === 'ENTREGADO') {
+          banner = bannerHtml('bad', 'Ya fue entregado', 'Este cupón ya fue entregado el ' + escapeHtml(coupon.fecha_entrega || '-') + '.');
+        } else if (state === 'REDIMIDO') {
+          banner = bannerHtml('ok', 'Listo para entregar', 'Cupón redimido y pendiente de entrega.');
+          action = deliveryFormHtml();
+        } else {
+          banner = bannerHtml('warn', 'Estado no reconocido', 'Revisa el cupón en el panel admin.');
+        }
+
+        area.innerHTML =
+          banner +
+          '<section class="delivery-card">' +
+            '<div class="code-big">' + escapeHtml(coupon.codigo) + '</div>' +
+            '<div class="info-grid">' +
+              infoRow('Promoción', coupon.promocion || '-') +
+              infoRow('Estado', stateBadge(coupon.estado)) +
+              infoRow('Entrega', deliveryBadge(coupon)) +
+              infoRow('Redimido', coupon.fecha_redencion || '—') +
+              (delivery === 'ENTREGADO' ? infoRow('Entregado', coupon.fecha_entrega || '—') : '') +
+              (delivery === 'ENTREGADO' && coupon.entregado_por ? infoRow('Por', coupon.entregado_por) : '') +
+              (delivery === 'ENTREGADO' && coupon.comentario_entrega ? infoRow('Nota', coupon.comentario_entrega) : '') +
+            '</div>' +
+            action +
+            '<div id="deliveryResult" class="inline-result"></div>' +
+            '<div class="button-stack" style="margin-top:14px;">' +
+              '<button class="big-button ghost" type="button" id="newQueryButton">Consultar otro cupón</button>' +
+            '</div>' +
+          '</section>';
+
+        area.classList.remove('hidden');
+        area.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+        var confirmBtn = $('confirmDeliveryButton');
+        if (confirmBtn) confirmBtn.addEventListener('click', confirmDelivery);
+        $('newQueryButton').addEventListener('click', resetToSearch);
+      }
+
+      function deliveryFormHtml() {
+        return '' +
+          '<div style="margin-top:8px;">' +
+            '<label class="delivery-field">Entregado por' +
+              '<input id="entregadoPor" type="text" value="Stand" maxlength="60">' +
+            '</label>' +
+            '<label class="delivery-field">Comentario (opcional)' +
+              '<input id="comentarioEntrega" type="text" placeholder="Ej. Detalle entregado" maxlength="120">' +
+            '</label>' +
+            '<button class="big-button success" type="button" id="confirmDeliveryButton">Confirmar entrega</button>' +
+          '</div>';
+      }
+
+      function confirmDelivery() {
+        var pin = ($('pinInput').value || '').trim();
+        var btn = $('confirmDeliveryButton');
+        var box = $('deliveryResult');
+        btn.disabled = true;
+        box.innerHTML = '<div class="notice">Confirmando entrega…</div>';
+
+        var payload = {
+          pin: pin,
+          codigo: currentCoupon.codigo,
+          entregado_por: ($('entregadoPor') && $('entregadoPor').value) || 'Stand',
+          comentario_entrega: ($('comentarioEntrega') && $('comentarioEntrega').value) || ''
+        };
+
+        callServer('markCouponDelivered', payload)
+          .then(function (result) {
+            if (!result.ok) {
+              btn.disabled = false;
+              box.innerHTML = '<div class="notice error">' + escapeHtml(result.message) + '</div>';
+              if (result.coupon) { currentCoupon = result.coupon; renderResult(result.coupon); }
+              return;
+            }
+            currentCoupon = result.coupon;
+            // Re-render: ahora mostrará "Ya fue entregado" y bloquea el botón.
+            renderResult(result.coupon);
+            $('deliveryResult').innerHTML = '<div class="notice success">✓ Entrega confirmada correctamente.</div>';
+          })
+          .catch(function (err) {
+            btn.disabled = false;
+            box.innerHTML = '<div class="notice error">' + escapeHtml(err && err.message ? err.message : String(err)) + '</div>';
+          });
+      }
+
+      function resetToSearch() {
+        currentCoupon = null;
+        $('resultArea').classList.add('hidden');
+        $('resultArea').innerHTML = '';
+        $('codeInput').value = '';
+        $('codeInput').focus();
+        $('searchCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+
+      // ---- Helpers de render ----
+      function bannerHtml(tone, title, body) {
+        return '<div class="status-banner ' + tone + '"><h2>' + escapeHtml(title) + '</h2><p>' + escapeHtml(body) + '</p></div>';
+      }
+      function infoRow(label, valueHtml) {
+        return '<div class="info-row"><span>' + escapeHtml(label) + '</span><strong>' + valueHtml + '</strong></div>';
+      }
+      function deliveryBadge(coupon) {
+        if (String(coupon.estado || '').toUpperCase() !== 'REDIMIDO') return '<span class="delivery-badge">—</span>';
+        var delivered = String(coupon.entrega_estado || '').toUpperCase() === 'ENTREGADO';
+        return delivered
+          ? '<span class="delivery-badge entregado">ENTREGADO</span>'
+          : '<span class="delivery-badge pendiente">PENDIENTE</span>';
+      }
+      // stateBadge viene de shared.html, pero acepta HTML escapado de forma segura.
+
+      // ---- Pegar código ----
+      function pasteCode() {
+        if (navigator.clipboard && navigator.clipboard.readText) {
+          navigator.clipboard.readText()
+            .then(function (text) {
+              $('codeInput').value = extractCode(text);
+              $('codeInput').focus();
+            })
+            .catch(function () { $('codeInput').focus(); });
+        } else {
+          var manual = window.prompt('Pega el código o el enlace del cupón:');
+          if (manual) $('codeInput').value = extractCode(manual);
+        }
+      }
+
+      // Si pegan un enlace completo (?code=DULCE-XXX) extrae solo el código.
+      function extractCode(text) {
+        text = String(text || '').trim();
+        var m = text.match(/[?&]code=([^&\s]+)/i);
+        if (m) { try { return decodeURIComponent(m[1]).toUpperCase(); } catch (e) { return m[1].toUpperCase(); } }
+        return text.toUpperCase();
+      }
+
+      // ============================================================
+      // Escáner QR (cámara en vivo + respaldo "tomar foto")
+      // El QR de cada cupón codifica su URL de redención (…?code=DULCE-XXX),
+      // así que reusamos extractCode() para obtener el código y luego pasa
+      // EXACTAMENTE por el mismo flujo que el texto manual (consultCoupon()).
+      // ============================================================
+      var scanStream = null;       // MediaStream activo
+      var scanRAF = null;          // id de requestAnimationFrame
+      var scanActive = false;      // loop de escaneo en curso
+      var scanDetector = null;     // BarcodeDetector nativo (si existe)
+      var scanCanvas = null, scanCtx = null;
+      var barcodeDetectorSupported = (typeof window.BarcodeDetector === 'function');
+
+      function setScanHint(msg, isError) {
+        var el = $('scannerHint');
+        if (!el) return;
+        el.textContent = msg;
+        el.classList.toggle('error', !!isError);
+      }
+
+      // ¿El texto escaneado parece un cupón nuestro? (URL con ?code= o patrón PREFIX-XXXX)
+      function looksLikeCoupon(raw, code) {
+        return /[?&]code=/i.test(String(raw)) || /^[A-Z0-9]{2,}-[A-Z0-9]{4,}$/.test(String(code || ''));
+      }
+
+      function getScanCtx() {
+        if (!scanCanvas) {
+          scanCanvas = document.createElement('canvas');
+          scanCtx = scanCanvas.getContext('2d', { willReadFrequently: true });
+        }
+        return scanCtx;
+      }
+
+      function openScanner() {
+        showSearchError('');
+        var pin = ($('pinInput').value || '').trim();
+        if (!pin) { showSearchError('Ingresa el PIN_ADMIN antes de escanear.'); $('pinInput').focus(); return; }
+        $('scannerOverlay').classList.remove('hidden');
+        document.body.style.overflow = 'hidden';
+        startCamera();
+      }
+
+      function startCamera() {
+        setScanHint('Apunta la cámara al código QR…', false);
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          fallbackToPhoto('Tu navegador no permite cámara en vivo aquí. Usa "Tomar foto del QR".');
+          return;
+        }
+        navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false })
+          .then(function (stream) {
+            scanStream = stream;
+            var video = $('scannerVideo');
+            video.srcObject = stream;
+            return video.play();
+          })
+          .then(function () {
+            scanActive = true;
+            if (barcodeDetectorSupported) {
+              try { scanDetector = new window.BarcodeDetector({ formats: ['qr_code'] }); }
+              catch (e) { scanDetector = null; }
+            }
+            scanLoop();
+          })
+          .catch(function () {
+            // Permiso denegado, sin cámara, o bloqueada por el iframe de Apps Script.
+            fallbackToPhoto('No pudimos abrir la cámara en vivo. Toca "Tomar foto del QR".');
+          });
+      }
+
+      function scanLoop() {
+        if (!scanActive) return;
+        var video = $('scannerVideo');
+        if (video.readyState >= video.HAVE_ENOUGH_DATA && video.videoWidth) {
+          if (scanDetector) {
+            scanDetector.detect(video)
+              .then(function (codes) {
+                if (codes && codes.length) { onScanText(codes[0].rawValue); }
+                else if (scanActive) { scanRAF = requestAnimationFrame(scanLoop); }
+              })
+              .catch(function () {
+                // BarcodeDetector falló en runtime → degradar a jsQR.
+                scanDetector = null;
+                if (scanActive) scanRAF = requestAnimationFrame(scanLoop);
+              });
+            return;
+          }
+          var text = decodeFrameWithJsQR(video);
+          if (text) { onScanText(text); return; }
+        }
+        scanRAF = requestAnimationFrame(scanLoop);
+      }
+
+      function decodeFrameWithJsQR(video) {
+        if (typeof jsQR !== 'function') return null;
+        var ctx = getScanCtx();
+        var w = video.videoWidth, h = video.videoHeight;
+        var maxDim = 640; // limita resolución por rendimiento
+        var scale = Math.min(1, maxDim / Math.max(w, h));
+        var cw = Math.round(w * scale), ch = Math.round(h * scale);
+        scanCanvas.width = cw; scanCanvas.height = ch;
+        ctx.drawImage(video, 0, 0, cw, ch);
+        var img = ctx.getImageData(0, 0, cw, ch);
+        var result = jsQR(img.data, cw, ch, { inversionAttempts: 'dontInvert' });
+        return result && result.data ? result.data : null;
+      }
+
+      function onScanText(raw) {
+        var code = extractCode(raw);
+        if (!looksLikeCoupon(raw, code)) {
+          setScanHint('Ese QR no parece un cupón. Apunta al QR del cliente…', true);
+          if (scanActive) scanRAF = requestAnimationFrame(scanLoop);
+          return;
+        }
+        if (navigator.vibrate) { try { navigator.vibrate(60); } catch (e) {} }
+        closeScanner();
+        $('codeInput').value = code;
+        consultCoupon(); // mismo flujo que el ingreso manual
+      }
+
+      // Respaldo universal: input file con captura de cámara (funciona aunque
+      // getUserMedia esté bloqueado por la política del iframe, p. ej. iOS).
+      function fallbackToPhoto(msg) {
+        scanActive = false;
+        if (scanRAF) { cancelAnimationFrame(scanRAF); scanRAF = null; }
+        setScanHint(msg, true);
+      }
+
+      function decodeImageFile(file) {
+        if (typeof jsQR !== 'function') {
+          setScanHint('No se pudo cargar el lector. Ingresa el código manualmente.', true);
+          return;
+        }
+        setScanHint('Leyendo la foto…', false);
+        var url = URL.createObjectURL(file);
+        var img = new Image();
+        img.onload = function () {
+          var maxDim = 1024;
+          var scale = Math.min(1, maxDim / Math.max(img.naturalWidth, img.naturalHeight));
+          var cw = Math.round(img.naturalWidth * scale), ch = Math.round(img.naturalHeight * scale);
+          var ctx = getScanCtx();
+          scanCanvas.width = cw; scanCanvas.height = ch;
+          ctx.drawImage(img, 0, 0, cw, ch);
+          URL.revokeObjectURL(url);
+          var data = ctx.getImageData(0, 0, cw, ch);
+          var result = jsQR(data.data, cw, ch, { inversionAttempts: 'attemptBoth' });
+          if (result && result.data) {
+            var code = extractCode(result.data);
+            if (looksLikeCoupon(result.data, code)) {
+              if (navigator.vibrate) { try { navigator.vibrate(60); } catch (e) {} }
+              closeScanner();
+              $('codeInput').value = code;
+              consultCoupon();
+              return;
+            }
+          }
+          setScanHint('No se detectó un QR de cupón en la foto. Acércate e intenta de nuevo.', true);
+        };
+        img.onerror = function () { URL.revokeObjectURL(url); setScanHint('No se pudo leer la imagen.', true); };
+        img.src = url;
+      }
+
+      function closeScanner() {
+        scanActive = false;
+        if (scanRAF) { cancelAnimationFrame(scanRAF); scanRAF = null; }
+        if (scanStream) {
+          scanStream.getTracks().forEach(function (t) { t.stop(); });
+          scanStream = null;
+        }
+        var video = $('scannerVideo');
+        if (video) { try { video.pause(); } catch (e) {} video.srcObject = null; }
+        scanDetector = null;
+        $('scannerOverlay').classList.add('hidden');
+        document.body.style.overflow = '';
+      }
+
+      // ---- Init ----
+      // Reescribe el enlace a admin con la URL absoluta (evita userCodeAppPanel vacío).
+      if (window.APP_WEB_APP_URL && $('adminLink')) {
+        $('adminLink').setAttribute('href', window.APP_WEB_APP_URL + '?admin=1');
+      }
+      renderBrand();
+      $('consultButton').addEventListener('click', consultCoupon);
+      $('pasteButton').addEventListener('click', pasteCode);
+      $('scanButton').addEventListener('click', openScanner);
+      $('scannerClose').addEventListener('click', closeScanner);
+      $('scannerPhotoBtn').addEventListener('click', function () { $('scannerFile').click(); });
+      $('scannerFile').addEventListener('change', function (e) {
+        var file = e.target.files && e.target.files[0];
+        e.target.value = ''; // permite repetir la misma foto
+        if (file) decodeImageFile(file);
+      });
+      $('codeInput').addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); consultCoupon(); }
+      });
+
+      // Si llegó ?code= (ej. enlace ?delivery=1&code=DULCE-XXX), precargarlo.
+      if (window.APP_INITIAL_CODE) {
+        $('codeInput').value = String(window.APP_INITIAL_CODE).toUpperCase();
+      }
+    </script>
+  </body>
+</html>

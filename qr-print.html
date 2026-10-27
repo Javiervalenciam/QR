@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <?!= include('styles'); ?>
+  </head>
+  <body>
+    <main class="page print-page">
+      <section class="brand-bar no-print">
+        <div>
+          <p class="eyebrow">Vista imprimible</p>
+          <h1>QR de cupones</h1>
+        </div>
+        <div class="button-row print-actions">
+          <button class="secondary-button" type="button" onclick="window.print()">Imprimir</button>
+          <button class="primary-button" type="button" onclick="window.print()">Guardar como PDF</button>
+        </div>
+      </section>
+
+      <section id="printLogin" class="card no-print">
+        <h2>Acceso admin</h2>
+        <form id="printLoginForm" class="inline-form" onsubmit="return false">
+          <input id="printPin" type="password" inputmode="numeric" autocomplete="one-time-code" placeholder="PIN_ADMIN" required>
+          <button id="printLoginButton" class="primary-button" type="button">Cargar QR</button>
+        </form>
+      </section>
+
+      <section id="printControls" class="toolbar no-print hidden">
+        <label>
+          Estado
+          <select id="printStateFilter">
+            <option value="">Todos</option>
+            <option value="DISPONIBLE">Disponibles</option>
+            <option value="REDIMIDO">Redimidos</option>
+            <option value="ANULADO">Anulados</option>
+            <option value="ELIMINADO">Eliminados</option>
+          </select>
+        </label>
+        <label>
+          Buscar
+          <input id="printSearchBox" type="search" placeholder="DULCE-ABC123">
+        </label>
+        <button class="secondary-button" type="button" id="printReload">Actualizar</button>
+        <span id="printCount" class="muted"></span>
+      </section>
+
+      <section id="qrGrid" class="qr-grid-print"></section>
+    </main>
+
+    <?!= include('shared'); ?>
+    <?!= include('qr-lib'); ?>
+    <script>
+      const branding = normalizeBranding(<?!= JSON.stringify(branding || {}) ?>);
+      let printPin = safeStorageGet('qr_admin_pin');
+
+      function submitPrintLogin(event) {
+        if (event) event.preventDefault();
+        printPin = document.getElementById('printPin').value;
+        safeStorageSet('qr_admin_pin', printPin);
+        loadPrintable();
+      }
+
+      function initPrint() {
+        // Login primero, por la misma razón que en admin.html.
+        document.getElementById('printLoginForm').addEventListener('submit', submitPrintLogin);
+        document.getElementById('printLoginButton').addEventListener('click', submitPrintLogin);
+
+        try {
+          document.getElementById('printPin').value = printPin;
+          document.getElementById('printReload').addEventListener('click', loadPrintable);
+          document.getElementById('printStateFilter').addEventListener('change', loadPrintable);
+          document.getElementById('printSearchBox').addEventListener('input', debounce(loadPrintable, 300));
+        } catch (err) {
+          console.error('Error inicializando la vista de impresión:', err);
+        }
+        if (printPin) loadPrintable();
+      }
+
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initPrint);
+      } else {
+        initPrint();
+      }
+
+      async function loadPrintable() {
+        setLoading(document.getElementById('qrGrid'), 'Preparando QR...');
+        try {
+          const filters = {
+            estado: document.getElementById('printStateFilter').value,
+            busqueda: document.getElementById('printSearchBox').value
+          };
+          const result = await callServer('getPrintableCoupons', printPin, filters);
+          if (!result.ok) {
+            document.getElementById('printControls').classList.add('hidden');
+            document.getElementById('qrGrid').innerHTML = renderMessage('error', 'No se pudo cargar', result.message);
+            return;
+          }
+          document.getElementById('printLogin').classList.add('hidden');
+          document.getElementById('printControls').classList.remove('hidden');
+          if (result.branding) Object.assign(branding, normalizeBranding(result.branding));
+          document.getElementById('printCount').textContent = `${result.coupons.length} QR`;
+          renderPrintableGrid(result.coupons);
+        } catch (err) {
+          document.getElementById('qrGrid').innerHTML = renderMessage('error', 'Error', err.message);
+        }
+      }
+
+      function renderPrintableGrid(coupons) {
+        const grid = document.getElementById('qrGrid');
+        if (!coupons.length) {
+          grid.innerHTML = '<div class="empty-state no-print">No hay códigos para imprimir.</div>';
+          return;
+        }
+
+        grid.innerHTML = coupons.map((coupon, index) => `
+          <article class="print-qr-card">
+            <div class="print-brand">${brandLogoHtml(branding, 'print')}<strong>${escapeHtml(branding.businessName)}</strong></div>
+            <span class="print-promo">${escapeHtml(coupon.promocion || '')}</span>
+            <div id="qr_${index}" class="print-qr"></div>
+            <strong class="print-code">${escapeHtml(coupon.codigo)}</strong>
+            <span class="print-scan-hint">Escanea para redimir</span>
+            ${stateBadge(coupon.estado)}
+          </article>
+        `).join('');
+
+        coupons.forEach((coupon, index) => {
+          renderQr(document.getElementById(`qr_${index}`), coupon.url_redencion, { size: 240 });
+        });
+      }
+    </script>
+  </body>
+</html>

@@ -1,0 +1,414 @@
+<script>
+  // ============================================================================
+  // qr-lib.html — Encoder QR local (Reed-Solomon, máscara, versiones 1-9).
+  // Se incluye DESPUÉS de shared.html. Está aislado a propósito: si algo aquí
+  // se rompe (SyntaxError o error en tiempo de ejecución), SOLO se pierde el QR;
+  // los helpers de shared.html (login, callServer, escapeHtml...) siguen vivos.
+  // renderQr/downloadQrSvg degradan con gracia en vez de lanzar ReferenceError.
+  // ============================================================================
+  function downloadQrSvg(text, fileName, size = 512) {
+    const value = (text == null ? '' : String(text)).trim();
+    if (!value) { alert('No se pudo generar el QR: el enlace está vacío.'); return; }
+    try {
+      const svg = QrLocal.renderSvg(value, size || 512);
+      const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileName || 'QR-cupon.svg';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 500);
+    } catch (err) {
+      console.error('No se pudo descargar el QR:', err);
+      alert('No se pudo generar el QR para descargar.');
+    }
+  }
+
+  function renderQr(element, text, options = {}) {
+    if (!element) return;
+    const value = (text == null ? '' : String(text)).trim();
+    if (!value) {
+      element.innerHTML = '<div class="notice error">No se pudo generar el QR.</div>';
+      return;
+    }
+    try {
+      element.innerHTML = QrLocal.renderSvg(value, options.size || 240);
+    } catch (err) {
+      console.error('QR no disponible:', err);
+      element.innerHTML = '<div class="notice error">No se pudo generar el QR.</div>';
+    }
+  }
+
+  const QrLocal = (() => {
+    const ECC = {
+      1: { data: 19, ecc: 7, blocks: [19] },
+      2: { data: 34, ecc: 10, blocks: [34] },
+      3: { data: 55, ecc: 15, blocks: [55] },
+      4: { data: 80, ecc: 20, blocks: [80] },
+      5: { data: 108, ecc: 26, blocks: [108] },
+      6: { data: 136, ecc: 18, blocks: [68, 68] },
+      7: { data: 156, ecc: 20, blocks: [78, 78] },
+      8: { data: 194, ecc: 24, blocks: [97, 97] },
+      9: { data: 232, ecc: 30, blocks: [116, 116] }
+    };
+
+    const ALIGN = {
+      1: [],
+      2: [6, 18],
+      3: [6, 22],
+      4: [6, 26],
+      5: [6, 30],
+      6: [6, 34],
+      7: [6, 22, 38],
+      8: [6, 24, 42],
+      9: [6, 26, 46]
+    };
+
+    const EXP = new Array(512);
+    const LOG = new Array(256);
+    let x = 1;
+    for (let i = 0; i < 255; i++) {
+      EXP[i] = x;
+      LOG[x] = i;
+      x <<= 1;
+      if (x & 0x100) x ^= 0x11d;
+    }
+    for (let i = 255; i < 512; i++) EXP[i] = EXP[i - 255];
+
+    function renderSvg(text, pixelSize) {
+      const qr = encode(String(text || ''));
+      const quiet = 4;
+      const size = qr.size + quiet * 2;
+      const scale = pixelSize / size;
+      let paths = '';
+      for (let y = 0; y < qr.size; y++) {
+        for (let x = 0; x < qr.size; x++) {
+          if (qr.modules[y][x]) {
+            paths += `M${(x + quiet) * scale},${(y + quiet) * scale}h${scale}v${scale}h-${scale}z`;
+          }
+        }
+      }
+      return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${pixelSize} ${pixelSize}" width="${pixelSize}" height="${pixelSize}" role="img" aria-label="QR"><rect width="100%" height="100%" fill="#fff"/><path d="${paths}" fill="#000"/></svg>`;
+    }
+
+    function encode(text) {
+      const bytes = utf8Bytes(text);
+      const version = chooseVersion(bytes.length);
+      const config = ECC[version];
+      const dataCodewords = makeData(bytes, config.data);
+      const codewords = addErrorCorrection(dataCodewords, config);
+      let best = null;
+
+      for (let mask = 0; mask < 8; mask++) {
+        const qr = buildMatrix(version, codewords, mask);
+        const penalty = score(qr.modules);
+        if (!best || penalty < best.penalty) best = { ...qr, penalty };
+      }
+      return best;
+    }
+
+    function chooseVersion(byteLength) {
+      for (let version = 1; version <= 9; version++) {
+        const availableBits = ECC[version].data * 8;
+        const neededBits = 4 + 8 + byteLength * 8;
+        if (neededBits <= availableBits) return version;
+      }
+      throw new Error('El enlace es demasiado largo para el QR local. Usa una URL de Web App más corta.');
+    }
+
+    function makeData(bytes, dataCount) {
+      const bits = [];
+      appendBits(bits, 0b0100, 4);
+      appendBits(bits, bytes.length, 8);
+      bytes.forEach((byte) => appendBits(bits, byte, 8));
+
+      const capacity = dataCount * 8;
+      appendBits(bits, 0, Math.min(4, capacity - bits.length));
+      while (bits.length % 8) bits.push(0);
+
+      const data = [];
+      for (let i = 0; i < bits.length; i += 8) {
+        data.push(bits.slice(i, i + 8).reduce((acc, bit) => (acc << 1) | bit, 0));
+      }
+
+      let pad = 0xec;
+      while (data.length < dataCount) {
+        data.push(pad);
+        pad = pad === 0xec ? 0x11 : 0xec;
+      }
+      return data;
+    }
+
+    function addErrorCorrection(data, config) {
+      const blocks = [];
+      let offset = 0;
+      for (const length of config.blocks) {
+        const chunk = data.slice(offset, offset + length);
+        blocks.push({ data: chunk, ecc: reedSolomon(chunk, config.ecc) });
+        offset += length;
+      }
+
+      const output = [];
+      const maxDataLength = Math.max(...blocks.map((block) => block.data.length));
+      for (let i = 0; i < maxDataLength; i++) {
+        blocks.forEach((block) => {
+          if (i < block.data.length) output.push(block.data[i]);
+        });
+      }
+      for (let i = 0; i < config.ecc; i++) {
+        blocks.forEach((block) => output.push(block.ecc[i]));
+      }
+      return output;
+    }
+
+    function reedSolomon(data, degree) {
+      const generator = generatorPoly(degree);
+      const result = new Array(degree).fill(0);
+      data.forEach((byte) => {
+        const factor = byte ^ result.shift();
+        result.push(0);
+        if (factor) {
+          for (let i = 0; i < degree; i++) {
+            result[i] ^= gfMul(generator[i], factor);
+          }
+        }
+      });
+      return result;
+    }
+
+    function generatorPoly(degree) {
+      let poly = new Array(degree).fill(0);
+      poly[degree - 1] = 1;
+      let root = 1;
+      for (let i = 0; i < degree; i++) {
+        for (let j = 0; j < degree; j++) {
+          poly[j] = gfMul(poly[j], root);
+          if (j + 1 < degree) poly[j] ^= poly[j + 1];
+        }
+        root = gfMul(root, 2);
+      }
+      return poly;
+    }
+
+    function buildMatrix(version, codewords, mask) {
+      const size = 21 + (version - 1) * 4;
+      const modules = Array.from({ length: size }, () => new Array(size).fill(false));
+      const reserved = Array.from({ length: size }, () => new Array(size).fill(false));
+      const set = (row, col, value, reserve = true) => {
+        if (row < 0 || col < 0 || row >= size || col >= size) return;
+        modules[row][col] = Boolean(value);
+        if (reserve) reserved[row][col] = true;
+      };
+
+      drawFinder(set, 0, 0);
+      drawFinder(set, 0, size - 7);
+      drawFinder(set, size - 7, 0);
+      drawTiming(set, size);
+      drawAlignment(set, version, size, reserved);
+      set(size - 8, 8, true);
+      reserveFormat(reserved, size);
+      placeData(modules, reserved, codewords, mask);
+      drawFormat(modules, reserved, size, mask);
+      return { size, modules };
+    }
+
+    function drawFinder(set, row, col) {
+      for (let y = -1; y <= 7; y++) {
+        for (let x = -1; x <= 7; x++) {
+          const r = row + y;
+          const c = col + x;
+          const dark = x >= 0 && x <= 6 && y >= 0 && y <= 6 && (x === 0 || x === 6 || y === 0 || y === 6 || (x >= 2 && x <= 4 && y >= 2 && y <= 4));
+          set(r, c, dark);
+        }
+      }
+    }
+
+    function drawTiming(set, size) {
+      for (let i = 8; i < size - 8; i++) {
+        const dark = i % 2 === 0;
+        set(6, i, dark);
+        set(i, 6, dark);
+      }
+    }
+
+    function drawAlignment(set, version, size, reserved) {
+      const centers = ALIGN[version];
+      centers.forEach((row) => {
+        centers.forEach((col) => {
+          if (reserved[row] && reserved[row][col]) return;
+          for (let y = -2; y <= 2; y++) {
+            for (let x = -2; x <= 2; x++) {
+              const dist = Math.max(Math.abs(x), Math.abs(y));
+              set(row + y, col + x, dist !== 1);
+            }
+          }
+        });
+      });
+    }
+
+    function reserveFormat(reserved, size) {
+      // Brazos junto al localizador superior-izquierdo: 9 módulos cada uno
+      // (índices 0-8 de fila 8 y columna 8).
+      for (let i = 0; i < 9; i++) {
+        reserved[8][i] = true;
+        reserved[i][8] = true;
+      }
+      // Brazos lejanos (segunda copia del formato): SOLO 8 módulos cada uno
+      // (size-1 .. size-8). Reservar 9 incluía por error (8, size-9) y
+      // (size-9, 8), que son módulos de DATOS; al saltarlos, el zigzag se
+      // desincronizaba y TODOS los bits de datos quedaban corridos → el QR
+      // se veía bien pero ningún lector real podía decodificarlo.
+      for (let i = 0; i < 8; i++) {
+        reserved[8][size - 1 - i] = true;
+        reserved[size - 1 - i][8] = true;
+      }
+    }
+
+    function placeData(modules, reserved, codewords, mask) {
+      const bits = [];
+      codewords.forEach((word) => appendBits(bits, word, 8));
+      const size = modules.length;
+      let bitIndex = 0;
+      let upward = true;
+
+      for (let col = size - 1; col > 0; col -= 2) {
+        if (col === 6) col--;
+        for (let step = 0; step < size; step++) {
+          const row = upward ? size - 1 - step : step;
+          for (let offset = 0; offset < 2; offset++) {
+            const c = col - offset;
+            if (!reserved[row][c]) {
+              const raw = bitIndex < bits.length ? bits[bitIndex++] === 1 : false;
+              modules[row][c] = raw !== maskBit(mask, row, c);
+            }
+          }
+        }
+        upward = !upward;
+      }
+    }
+
+    function drawFormat(modules, reserved, size, mask) {
+      const bits = formatBits(mask);
+      const set = (row, col, bitIndex) => {
+        modules[row][col] = ((bits >> bitIndex) & 1) === 1;
+        reserved[row][col] = true;
+      };
+
+      for (let i = 0; i <= 5; i++) set(8, i, i);
+      set(8, 7, 6);
+      set(8, 8, 7);
+      set(7, 8, 8);
+      for (let i = 9; i < 15; i++) set(14 - i, 8, i);
+
+      // Segunda copia: bits 0-7 horizontales en la fila 8, bits 8-14 verticales
+      // en la columna 8 (convención fila,columna). Ojo: fila/columna NO se
+      // intercambian — invertirlas dejaba la copia 2 transpuesta y pisaba el
+      // módulo oscuro con el bit 7, corrompiendo el formato y haciendo el QR
+      // ilegible para lectores reales aunque la copia 1 fuera válida.
+      for (let i = 0; i < 8; i++) set(8, size - 1 - i, i);
+      for (let i = 8; i < 15; i++) set(size - 15 + i, 8, i);
+      modules[size - 8][8] = true;
+    }
+
+    function formatBits(mask) {
+      let data = (1 << 3) | mask;
+      let value = data << 10;
+      const generator = 0x537;
+      for (let i = 14; i >= 10; i--) {
+        if ((value >> i) & 1) value ^= generator << (i - 10);
+      }
+      return ((data << 10) | value) ^ 0x5412;
+    }
+
+    function maskBit(mask, row, col) {
+      switch (mask) {
+        case 0: return (row + col) % 2 === 0;
+        case 1: return row % 2 === 0;
+        case 2: return col % 3 === 0;
+        case 3: return (row + col) % 3 === 0;
+        case 4: return (Math.floor(row / 2) + Math.floor(col / 3)) % 2 === 0;
+        case 5: return ((row * col) % 2) + ((row * col) % 3) === 0;
+        case 6: return (((row * col) % 2) + ((row * col) % 3)) % 2 === 0;
+        case 7: return (((row + col) % 2) + ((row * col) % 3)) % 2 === 0;
+      }
+      return false;
+    }
+
+    function score(modules) {
+      const size = modules.length;
+      let penalty = 0;
+      for (let row = 0; row < size; row++) penalty += linePenalty(modules[row]);
+      for (let col = 0; col < size; col++) penalty += linePenalty(modules.map((row) => row[col]));
+
+      for (let y = 0; y < size - 1; y++) {
+        for (let x = 0; x < size - 1; x++) {
+          const color = modules[y][x];
+          if (modules[y][x + 1] === color && modules[y + 1][x] === color && modules[y + 1][x + 1] === color) penalty += 3;
+        }
+      }
+
+      const patternA = '10111010000';
+      const patternB = '00001011101';
+      for (let i = 0; i < size; i++) {
+        const row = modules[i].map((value) => value ? '1' : '0').join('');
+        const col = modules.map((line) => line[i] ? '1' : '0').join('');
+        penalty += patternPenalty(row, patternA, patternB);
+        penalty += patternPenalty(col, patternA, patternB);
+      }
+
+      const dark = modules.flat().filter(Boolean).length;
+      const percent = (dark * 100) / (size * size);
+      penalty += Math.floor(Math.abs(percent - 50) / 5) * 10;
+      return penalty;
+    }
+
+    function linePenalty(line) {
+      let penalty = 0;
+      let runColor = line[0];
+      let runLength = 1;
+      for (let i = 1; i < line.length; i++) {
+        if (line[i] === runColor) {
+          runLength++;
+        } else {
+          if (runLength >= 5) penalty += 3 + runLength - 5;
+          runColor = line[i];
+          runLength = 1;
+        }
+      }
+      if (runLength >= 5) penalty += 3 + runLength - 5;
+      return penalty;
+    }
+
+    function patternPenalty(line, a, b) {
+      let penalty = 0;
+      let index = line.indexOf(a);
+      while (index !== -1) {
+        penalty += 40;
+        index = line.indexOf(a, index + 1);
+      }
+      index = line.indexOf(b);
+      while (index !== -1) {
+        penalty += 40;
+        index = line.indexOf(b, index + 1);
+      }
+      return penalty;
+    }
+
+    function appendBits(bits, value, length) {
+      for (let i = length - 1; i >= 0; i--) bits.push((value >> i) & 1);
+    }
+
+    function utf8Bytes(text) {
+      return Array.from(new TextEncoder().encode(text));
+    }
+
+    function gfMul(a, b) {
+      if (!a || !b) return 0;
+      return EXP[LOG[a] + LOG[b]];
+    }
+
+    return { renderSvg };
+  })();
+</script>
